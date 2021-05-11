@@ -1,0 +1,725 @@
+# Version: 1 April 2021
+#   Nucleotide output
+#   Can exclude loci based on taxon occupancy
+#       -specified in config.yaml
+
+import pandas as pd
+
+IDS, = glob_wildcards("data_trans/{id}.trans.fa")
+
+mare_retain_taxa = "-c Bembidion_eurydice_DNA3183_LIB0311 -c Caecidium_DNA4969_LIB0312 -c Echinoplichas_DNA2576_LIB0456 -c Geocosmius_DNA5317_LIB0471 -c Hoquedela_DNA3178_LIB0139 -c Merizodus_DNA4314_LIB0138 -c Sinechostictus_lederi_DNA4503 -c Pterocyrtus_rubescens_DNA5500 -c Asaphidion_curtum_DNA0267 -c Tasmanitachoides_wilsoni_DNA5514 -c Bembidion_tethys_DNA2957"
+
+configfile: "config.yaml"
+occ_cutoff = config["Occupancy"]
+
+use_mare = True
+multi_mare = False
+
+rule all:
+    input:
+        # expand("merged_loci/{id}.merged.renamed.fa", id=IDS)
+        # expand("renamed_loci/{id}.merged.renamed.fa", id=IDS)
+        # expand("aligned_loci/{id}.aa_ali.trim.fa", id=IDS)
+        # expand("tree_loci/{sample}.treefile", sample=IDS)
+        # expand("treeshrink_input/{sample}", sample=IDS)
+        # "treeshrink_output"
+        # expand("treeshrink_aligns/{sample}.fasta", sample=IDS),
+        #
+        # # expand("treeshrink_aligns/single_aligns/{sample}.fasta", sample=IDS)
+        # "mare_input/align.fa"
+        # "mare_input/results"
+        # "BaCoCa_Results/RCFV_include.txt"
+        # "passing_loci"
+        # "symtest_loci"
+        # "symtest_loci/symtest_passing.txt"
+        # "iqtree_passing"
+        # expand("final_genetrees/{psample}.treefile", psample=glob_wildcards("iqtree_passing/{id}.fa"))
+        # expand("final_genetrees/{sample}.treefile", sample=glob_wildcards("iqtree_passing/{id}.fa"))
+        "run_final_iqtree.sh", \
+        "run_final_iqtree_NT.sh"
+
+rule merge_input:
+    input:
+        "data_decon/{sample}.decon.fa", \
+        "data_trans/{sample}.trans.fa"
+    output:
+        "merged_loci/{sample}.merged.fa"
+    shell:
+        "cat {input} > {output}"
+
+
+rule rename:
+    input:
+        "merged_loci/{sample}.merged.fa"
+    output:
+        "renamed_loci/{sample}.merged.renamed.fa"
+    conda:
+        "envs/biopython.yaml"
+    script:
+        "scripts/renamer.py"
+
+
+rule align_loci:
+    input:
+        "renamed_loci/{sample}.merged.renamed.fa"
+    output:
+        "aligned_loci/{sample}.aa_ali.fasta", \
+        "aligned_loci/{sample}.nt_ali.fasta",
+    shell:
+        "perl scripts/translatorx_vLocal.pl -i {input} -t T -p F -o aligned_loci/{wildcards.sample}"
+
+
+rule trim_loci:
+    input:
+        "aligned_loci/{sample}.aa_ali.fasta"
+    output:
+        "aligned_loci/{sample}.aa_ali.trim.fa"
+    conda:
+        "envs/biopython.yaml"
+    shell:
+        "scripts/pretrim.py -i {input}"
+
+
+rule trim_loci_NT:
+    input:
+        "aligned_loci/{sample}.nt_ali.fasta"
+    output:
+        "aligned_loci/{sample}.nt_ali.trim.fa"
+    conda:
+        "envs/biopython.yaml"
+    shell:
+        "scripts/pretrim.py -i {input}"
+
+
+rule gene_tree:
+    input:
+        "aligned_loci/{sample}.aa_ali.trim.fa"
+    output:
+        "tree_loci/{sample}.treefile"
+    conda:
+        "envs/iqtree.yaml"
+    shell:
+        "iqtree -nt 1 -m WAG -s {input} -pre tree_loci/{wildcards.sample}"
+
+
+rule agg_loci:
+    '''Aggrigate alignments and tree for Treeshrink'''
+    input:
+        tree="tree_loci/{sample}.treefile",
+        algn="aligned_loci/{sample}.aa_ali.trim.fa"
+    output:
+        directory("treeshrink_input/{sample}")
+    shell:
+        "mkdir treeshrink_input/{wildcards.sample} && "
+        "cp {input.tree} treeshrink_input/{wildcards.sample}/input.tree && "
+        "cp {input.algn} treeshrink_input/{wildcards.sample}/input.fasta"
+
+
+rule agg_loci_NT:
+    '''Aggrigate alignments and tree for Treeshrink'''
+    input:
+        tree="tree_loci/{sample}.treefile",
+        algn="aligned_loci/{sample}.nt_ali.trim.fa"
+    output:
+        directory("treeshrink_input_NT/{sample}")
+    shell:
+        "mkdir treeshrink_input_NT/{wildcards.sample} && "
+        "cp {input.tree} treeshrink_input_NT/{wildcards.sample}/input.tree && "
+        "cp {input.algn} treeshrink_input_NT/{wildcards.sample}/input.fasta"
+
+
+rule treeshrink:
+    input:
+        expand("treeshrink_input/{sample}", sample=IDS)
+    output:
+        # "treeshrink_output/{sample}/output.fasta"
+        directory(expand("treeshrink_output/{sample}", sample=IDS))
+        # directory("treeshink_output")
+    conda:
+        "envs/treeshrink.yaml"
+    shell:
+        "run_treeshrink.py -i treeshrink_input -t input.tree -a input.fasta -o treeshrink_output"
+
+
+rule treeshrink_NT:
+    input:
+        expand("treeshrink_input_NT/{sample}", sample=IDS)
+    output:
+        # "treeshrink_output/{sample}/output.fasta"
+        directory(expand("treeshrink_output_NT/{sample}", sample=IDS))
+        # directory("treeshink_output")
+    conda:
+        "envs/treeshrink.yaml"
+    shell:
+        "run_treeshrink.py -i treeshrink_input_NT -t input.tree -a input.fasta -o treeshrink_output_NT"
+
+
+rule agg_treeshrink_aligns:
+    input:
+        # expand("treeshrink_output/{sample}", sample=IDS),
+        "treeshrink_output/{sample}"
+    output:
+        "treeshrink_aligns/{sample}.fasta"
+    shell:
+        # "mkdir treeshrink_aligns && "
+        "cp treeshrink_output/{wildcards.sample}/output.fasta treeshrink_aligns/{wildcards.sample}.fasta"
+
+
+rule agg_treeshrink_aligns_NT:
+    input:
+        # expand("treeshrink_output/{sample}", sample=IDS),
+        "treeshrink_output_NT/{sample}"
+    output:
+        "treeshrink_aligns_NT/{sample}.fasta"
+    shell:
+        # "mkdir treeshrink_aligns && "
+        "cp treeshrink_output_NT/{wildcards.sample}/output.fasta treeshrink_aligns_NT/{wildcards.sample}.fasta"
+
+
+# Loop MARE and grap consensus loci
+if use_mare:
+    rule prep_mare:
+        input:
+            expand("treeshrink_aligns/{sample}.fasta", sample=IDS)
+        output:
+            "mare_input/partition.txt",
+            "mare_input/align.fa"
+        conda:
+            "envs/amas.yaml"
+        shell:
+            # "mkdir mare_input && "
+            "AMAS.py concat -i {input} -f fasta -d aa --part-format nexus -p mare_input/raw_partition.txt -t mare_input/raw_align.fa && "
+            "sed s/?/-/g mare_input/raw_align.fa > mare_input/align_inter.fa && "
+            "seqkit seq -w 0 ./mare_input/align_inter.fa > ./mare_input/align.fa && "
+            "cat mare_input/raw_partition.txt | awk '/charset/ {{print}}' | awk '{{gsub(/^[ \t]+/,\"\")}} {{print}}' > mare_input/partition.txt"
+
+
+    rule run_mare:
+        input:
+            part  = "mare_input/partition.txt",
+            align = "mare_input/align.fa"
+        output:
+            directory("mare_input/results1"), \
+            "BaCoCa_Results_AA/summarized_frequencies.txt"
+        params:
+            part  = "partition.txt",
+            align = "align.fa",
+            retain = mare_retain_taxa
+        shell:
+            """
+            cp ./scripts/MARE_v0.1.2-rc/MARE ./mare_input
+            cd ./mare_input
+            ./MARE {params.part} {params.align} -t 100
+            mv results results1
+
+            ./MARE {params.part} {params.align} -t 100
+            mv results results2
+
+            ./MARE {params.part} {params.align} -t 100
+            mv results results3
+
+            ./MARE {params.part} {params.align} -t 100
+            mv results results4
+
+            cd ..
+            mkdir mare_output
+
+            cp ./mare_input/results1/align.fa_reduced ./mare_output/align.fas
+            sed "s/charset p[0-9]*_// ; s/;$// ; s/ - /-/" ./mare_input/results1/partition.txt_reduced > ./mare_output/partition.txt
+
+            perl ./scripts/BaCoCa_v1.1/BaCoCa_v1.1_Skript_Perl/BaCoCa.v1.105.pl -i ./mare_output/align.fas -p ./mare_output/partition.txt
+
+            cp -r  ./BaCoCa_Results/ ./BaCoCa_Results_AA/
+            rm -fr ./BaCoCa_Results/
+
+            rm -fr BaCoCa_Results_AA/invariant_alignment_positions
+            rm -fr BaCoCa_Results_AA/missing_data_overlap
+            rm -fr BaCoCa_Results_AA/chisquare_test_homogeneity_taxa
+            rm -fr BaCoCa_Results_AA/taxon_basefrequencies_all_partions
+            rm -fr BaCoCa_Results_AA/compositional_bias
+
+            """
+
+
+    rule prep_mare_NT:
+        input:
+            expand("treeshrink_aligns_NT/{sample}.fasta", sample=IDS)
+        output:
+            "mare_input_NT/partition.txt", \
+            "mare_input_NT/align.fa"
+        conda:
+            "envs/amas.yaml"
+        shell:
+            # "mkdir mare_input && "
+            "AMAS.py concat -i {input} -f fasta -d dna --part-format raxml -p mare_input_NT/raw_partition.txt -t mare_input_NT/raw_align.fa && "
+            "sed s/?/-/g mare_input_NT/raw_align.fa > mare_input_NT/align_inter.fa && "
+            "seqkit seq -w 0 ./mare_input_NT/align_inter.fa > ./mare_input_NT/align.fa && "
+            "cp mare_input_NT/raw_partition.txt mare_input_NT/partition.txt"
+
+
+    rule skip_mare_NT:
+        input:
+            part  = "mare_input_NT/partition.txt", \
+            align = "mare_input_NT/align.fa"
+        output:
+            "BaCoCa_Results_NT/summarized_frequencies.txt"
+        params:
+            part  = "partition.txt",
+            align = "align.fa",
+            retain = mare_retain_taxa
+        shell:
+            """
+            mkdir mare_output_NT
+
+            # cp ./mare_input/results/align.fa_reduced ./mare_output/align.fas
+            cp ./mare_input_NT/align.fa ./mare_output_NT/align.fas
+
+            # sed "s/charset p[0-9]*_// ; s/;$// ; s/ - /-/" ./mare_input/results/partition.txt_reduced > ./mare_output/partition.txt
+            sed "s/^.*, p[0-9]*_//" ./mare_input_NT/partition.txt > ./mare_output_NT/partition.txt
+
+            echo perl ./scripts/BaCoCa_v1.1/BaCoCa_v1.1_Skript_Perl/BaCoCa.v1.105.pl -i ./mare_output_NT/align.fas -p ./mare_output_NT/partition.txt
+            touch "BaCoCa_Results_NT/summarized_frequencies.txt"
+
+            # cp -r  ./BaCoCa_Results/ ./BaCoCa_Results_NT/
+            # rm -fr ./BaCoCa_Results/
+            """
+
+
+elif multi_mare:
+    rule prep_mare:
+        input:
+            expand("treeshrink_aligns/{sample}.fasta", sample=IDS)
+        output:
+            "mare_input/partition.txt",
+            "mare_input/align.fa"
+        conda:
+            "envs/amas.yaml"
+        shell:
+            # "mkdir mare_input && "
+            "AMAS.py concat -i {input} -f fasta -d aa --part-format nexus -p mare_input/raw_partition.txt -t mare_input/raw_align.fa && "
+            "sed s/?/-/g mare_input/raw_align.fa > mare_input/align_inter.fa && "
+            "seqkit seq -w 0 ./mare_input/align_inter.fa > ./mare_input/align.fa && "
+            "cat mare_input/raw_partition.txt | awk '/charset/ {{print}}' | awk '{{gsub(/^[ \t]+/,\"\")}} {{print}}' > mare_input/partition.txt"
+
+
+    rule run_mare:
+        input:
+            part  = "mare_input/partition.txt",
+            align = "mare_input/align.fa"
+        output:
+            directory("mare_input/results"),
+            "BaCoCa_Results/summarized_frequencies.txt"
+        params:
+            part  = "partition.txt",
+            align = "align.fa",
+            retain = mare_retain_taxa
+        shell:
+            """
+            cp ./scripts/MARE_v0.1.2-rc/MARE ./mare_input
+            cd ./mare_input
+            ./MARE {params.part} {params.align} -t 100
+            cd ..
+            mkdir mare_output
+            cp ./mare_input/results/align.fa_reduced ./mare_output/align.fas
+            sed "s/charset p[0-9]*_// ; s/;$// ; s/ - /-/" ./mare_input/results/partition.txt_reduced > ./mare_output/partition.txt
+
+            perl ./scripts/BaCoCa_v1.1/BaCoCa_v1.1_Skript_Perl/BaCoCa.v1.105.pl -i ./mare_output/align.fas -p ./mare_output/partition.txt
+            """
+
+    mare_iters = 4
+
+    def prepmmare(wildcards):
+        return [ "mare_iter_{}".format(f) for f in range(mare_iters)]
+
+    rule run_multimare:
+        input:
+            part  = "mare_input/partition.txt",
+            align = "mare_input/align.fa",
+            path = "xxx"
+        output:
+            directory("mare_input/results"),
+            "BaCoCa_Results/summarized_frequencies.txt"
+        params:
+            part  = "partition.txt",
+            align = "align.fa",
+            retain = mare_retain_taxa
+            # iterations = 4,
+            # keep = 3 # should move to mmare proc rule?
+        run:
+            import os
+            from shutil import copyfile
+
+            for i in range(iterations):
+                mare_iter_path = os.path.join(
+                    "./mare_output",
+                    "mare_results_{}".format(str(i+1)))
+                os.mkdir(mare_iter_path)
+                os.chdir(mare_iter_path)
+                shell("../MARE {params.part} {params.align} -t 100")
+
+else:
+    rule skip_prep_mare:
+        input:
+            expand("treeshrink_aligns/{sample}.fasta", sample=IDS)
+        output:
+            "mare_input/partition.txt", \
+            "mare_input/align.fa"
+        conda:
+            "envs/amas.yaml"
+        shell:
+            # "mkdir mare_input && "
+            "AMAS.py concat -i {input} -f fasta -d aa --part-format raxml -p mare_input/raw_partition.txt -t mare_input/raw_align.fa && "
+            "sed s/?/-/g mare_input/raw_align.fa > mare_input/align_inter.fa && "
+            "seqkit seq -w 0 ./mare_input/align_inter.fa > ./mare_input/align.fa && "
+            "cp mare_input/raw_partition.txt mare_input/partition.txt"
+
+
+    rule skip_mare:
+        input:
+            part  = "mare_input/partition.txt",
+            align = "mare_input/align.fa"
+        output:
+            "BaCoCa_Results_AA/summarized_frequencies.txt"
+        params:
+            part  = "partition.txt",
+            align = "align.fa",
+            retain = mare_retain_taxa
+        shell:
+            """
+            mkdir mare_output
+
+            # cp ./mare_input/results/align.fa_reduced ./mare_output/align.fas
+            cp ./mare_input/align.fa ./mare_output/align.fas
+
+            # sed "s/charset p[0-9]*_// ; s/;$// ; s/ - /-/" ./mare_input/results/partition.txt_reduced > ./mare_output/partition.txt
+            sed "s/^.*, p[0-9]*_//" ./mare_input/partition.txt > ./mare_output/partition.txt
+
+            perl ./scripts/BaCoCa_v1.1/BaCoCa_v1.1_Skript_Perl/BaCoCa.v1.105.pl -i ./mare_output/align.fas -p ./mare_output/partition.txt
+
+            cp -r  ./BaCoCa_Results/ ./BaCoCa_Results_AA/
+            rm -fr ./BaCoCa_Results/
+
+            rm -fr BaCoCa_Results_AA/invariant_alignment_positions
+            rm -fr BaCoCa_Results_AA/missing_data_overlap
+            rm -fr BaCoCa_Results_AA/chisquare_test_homogeneity_taxa
+            rm -fr BaCoCa_Results_AA/taxon_basefrequencies_all_partions
+            rm -fr BaCoCa_Results_AA/compositional_bias
+            """
+
+    rule skip_prep_mare_NT:
+        input:
+            expand("treeshrink_aligns_NT/{sample}.fasta", sample=IDS)
+        output:
+            "mare_input_NT/partition.txt", \
+            "mare_input_NT/align.fa"
+        conda:
+            "envs/amas.yaml"
+        shell:
+            # "mkdir mare_input && "
+            "AMAS.py concat -i {input} -f fasta -d dna --part-format raxml -p mare_input_NT/raw_partition.txt -t mare_input_NT/raw_align.fa && "
+            "sed s/?/-/g mare_input_NT/raw_align.fa > mare_input_NT/align_inter.fa && "
+            "seqkit seq -w 0 ./mare_input_NT/align_inter.fa > ./mare_input_NT/align.fa && "
+            "cp mare_input_NT/raw_partition.txt mare_input_NT/partition.txt"
+
+
+    rule skip_mare_NT:
+        input:
+            part  = "mare_input_NT/partition.txt", \
+            align = "mare_input_NT/align.fa"
+        output:
+            "BaCoCa_Results_NT/summarized_frequencies.txt"
+        params:
+            part  = "partition.txt",
+            align = "align.fa",
+            retain = mare_retain_taxa
+        shell:
+            """
+            mkdir mare_output_NT
+
+            # cp ./mare_input/results/align.fa_reduced ./mare_output/align.fas
+            cp ./mare_input_NT/align.fa ./mare_output_NT/align.fas
+
+            # sed "s/charset p[0-9]*_// ; s/;$// ; s/ - /-/" ./mare_input/results/partition.txt_reduced > ./mare_output/partition.txt
+            sed "s/^.*, p[0-9]*_//" ./mare_input_NT/partition.txt > ./mare_output_NT/partition.txt
+
+            echo perl ./scripts/BaCoCa_v1.1/BaCoCa_v1.1_Skript_Perl/BaCoCa.v1.105.pl -i ./mare_output_NT/align.fas -p ./mare_output_NT/partition.txt
+            touch "BaCoCa_Results_NT/summarized_frequencies.txt"
+
+            # cp -r  ./BaCoCa_Results/ ./BaCoCa_Results_NT/
+            # rm -fr ./BaCoCa_Results/
+            """
+
+
+rule proc_bacoca:
+    input:
+        "BaCoCa_Results_AA/summarized_frequencies.txt"
+    output:
+        "BaCoCa_Results_AA/RCFV_include.txt"
+    # conda:
+    #     "envs/pandas.yaml"
+    run:
+        # import pandas as pd
+
+        df = pd.read_csv(input[0], sep='\t', header=1)
+        total_taxa = df['N taxa (informative)'][0]                                      # Occupancy code
+        occ_fract = occ_cutoff * total_taxa                                             #
+        print("Total Taxa: {}\nOccupancy Cutoff: {}\nOccupancy Fraction: {}".format(    #
+            total_taxa, occ_cutoff*100, occ_fract))                                     #
+        df = df.drop([0])
+        df = df[df['RCFV Value'] >= 0.05]
+        df = df[df['N taxa (informative)'] >= occ_fract]                                #
+        df = df["File"]
+
+        df.to_csv(output[0], index=False, header=False)
+
+
+rule proc_bacoca_NT:
+    input:
+        "BaCoCa_Results_AA/summarized_frequencies.txt", \
+        "BaCoCa_Results_NT/summarized_frequencies.txt"
+    output:
+        "BaCoCa_Results_NT/RCFV_include.txt"
+    run:
+        # import pandas as pd
+
+        df = pd.read_csv(input[0], sep='\t', header=1)
+        total_taxa = df['N taxa (informative)'][0]                                      # Occupancy code
+        occ_fract = occ_cutoff * total_taxa                                             #
+        print("Total Taxa: {}\nOccupancy Cutoff: {}\nOccupancy Fraction: {}".format(    #
+            total_taxa, occ_cutoff*100, occ_fract))                                     #
+        df = df.drop([0])
+        df = df[df['RCFV Value'] >= 0.05]
+        df = df[df['N taxa (informative)'] >= occ_fract]                                #
+        df = df["File"]
+
+        df.to_csv(output[0], index=False, header=False)
+
+
+rule get_from_bacoca:
+    ''' Split supermatrix and select loci passing RCFV check '''
+    input:
+        "BaCoCa_Results_AA/RCFV_include.txt"
+    output:
+        # directory("passing_loci"),
+        "passing_loci/align.fa", \
+        "passing_loci/partition.txt"
+    conda:
+        "envs/amas.yaml"
+    shell:
+        """
+        cd ./mare_output
+        AMAS.py split -f fasta -d aa -i align.fas -l partition.txt --remove-empty
+        cd ..
+        # mkdir passing_loci
+        while read f; do cp ./mare_output/align*$f*.fas ./passing_loci/$f.fa ; done < {input}
+
+        cd ./passing_loci
+        AMAS.py concat -i *.fa -f fasta -d aa --part-format raxml -p partition.txt -t align.fa
+        """
+
+
+rule get_from_bacoca_NT:
+    ''' Split supermatrix and select loci passing RCFV check '''
+    input:
+        "BaCoCa_Results_NT/RCFV_include.txt"
+    output:
+        # directory("passing_loci"),
+        "passing_loci_NT/align.fa", \
+        "passing_loci_NT/partition.txt"
+    conda:
+        "envs/amas.yaml"
+    shell:
+        """
+        cd ./mare_output_NT
+        AMAS.py split -f fasta -d dna -i align.fas -l partition.txt --remove-empty
+        cd ..
+        while read f; do cp ./mare_output_NT/align*$f*.fas ./passing_loci_NT/$f.fa ; done < {input}
+
+        cd ./passing_loci_NT
+        AMAS.py concat -i *.fa -f fasta -d dna --part-format raxml -p partition.txt -t align.fa
+        """
+
+
+rule run_final_sptree:
+    ''' Infer final concat tree on supermatrix. Output Symtest results '''
+    input:
+        "passing_loci/align.fa", \
+        "passing_loci/partition.txt"
+    output:
+        directory("symtest_loci"), \
+        "symtest_loci/symtest.symtest.csv"
+    threads: 7
+    conda:
+        "envs/iqtree.yaml"
+    shell:
+        # "iqtree -nt 1 -m WAG -s {input} --symtest -pre symtest_loci"
+        """
+        # mkdir ./symtest_loci
+        iqtree -nt AUTO -n 0 -s ./passing_loci/align.fa -p ./passing_loci/partition.txt --symtest --symtest-remove-bad -pre ./symtest_loci/symtest
+
+        echo iqtree -nt AUTO -m MFP --runs 10 -s ./passing_loci/align.fa -p ./passing_loci/partition.txt --symtest --symtest-remove-bad -pre ./symtest_loci/ML
+        echo iqtree -nt AUTO -m MFP -B 10000 -wbt -alrt 10000 -s ./passing_loci/align.fa -p ./passing_loci/partition.txt --symtest --symtest-remove-bad -pre ./symtest_loci/UFBS
+        """
+
+
+rule run_final_sptree_NT:
+    ''' Infer final concat tree on supermatrix. Output Symtest results '''
+    input:
+        "passing_loci_NT/align.fa", \
+        "passing_loci_NT/partition.txt"
+    output:
+        directory("symtest_loci_NT"), \
+        "symtest_loci_NT/symtest.symtest.csv"
+    threads: 7
+    conda:
+        "envs/iqtree.yaml"
+    shell:
+        # "iqtree -nt 1 -m WAG -s {input} --symtest -pre symtest_loci"
+        """
+        # mkdir ./symtest_loci
+        iqtree -nt AUTO -n 0 -s ./passing_loci_NT/align.fa -p ./passing_loci_NT/partition.txt --symtest --symtest-remove-bad -pre ./symtest_loci_NT/symtest
+
+        echo iqtree2 -nt AUTO -m MFP --runs 10 -s ./passing_loci_NT/align.fa -p ./passing_loci_NT/partition.txt --symtest --symtest-remove-bad -pre ./symtest_loci_NT/ML
+        echo iqtree2 -nt AUTO -m MFP -B 10000 -wbt -alrt 10000 -s ./passing_loci_NT/align.fa -p ./passing_loci_NT/partition.txt --symtest --symtest-remove-bad -pre ./symtest_loci_NT/UFBS
+        """
+
+
+rule proc_symtest:
+    input:
+        "symtest_loci/symtest.symtest.csv"
+    output:
+        "symtest_loci/symtest_passing.txt"
+    run:
+        # import pandas as pd
+
+        df = pd.read_csv(input[0], sep=',', header=0, comment='#')
+        # df = df.drop([0])
+        # df.to_csv("iqtree_symtest_all.txt", index=False, header=True)
+        df = df[df['SymPval'] >= 0.05]
+        df = df["Name"].str.replace('p[0-9]+_', '', regex=True)
+        df.to_csv(output[0], index=False, header=False)
+
+
+rule proc_symtest_NT:
+    input:
+        "symtest_loci_NT/symtest.symtest.csv"
+    output:
+        "symtest_loci_NT/symtest_passing.txt"
+    run:
+        # import pandas as pd
+
+        df = pd.read_csv(input[0], sep=',', header=0, comment='#')
+        # df = df.drop([0])
+        # df.to_csv("iqtree_symtest_all.txt", index=False, header=True)
+        df = df[df['SymPval'] >= 0.05]
+        df = df["Name"].str.replace('p[0-9]+_', '', regex=True)
+        df.to_csv(output[0], index=False, header=False)
+
+
+rule symtest_passing:
+    input:
+        "symtest_loci/symtest_passing.txt"
+    output:
+        directory("iqtree_passing")
+    shell:
+        """
+        mkdir iqtree_passing
+        while read f; do cp ./passing_loci/*$f*.fa ./iqtree_passing ; done < {input}
+        """
+
+
+rule symtest_passing_NT:
+    input:
+        "symtest_loci/symtest_passing.txt", \
+        "symtest_loci_NT/symtest_passing.txt"
+    output:
+        directory("iqtree_passing_NT")
+    shell:
+        """
+        mkdir iqtree_passing_NT
+        while read f; do cp ./passing_loci_NT/*$f*.fa ./iqtree_passing_NT ; done < {input[0]}
+        """
+
+
+rule final_genetrees:
+    ''' Grab IDs of iqtree_passing loci, then run iqtree on each locus. '''
+    input:
+        "iqtree_passing"
+    output:
+        "run_final_iqtree.sh"
+    conda:
+        "envs/iqtree.yaml"
+    shell:
+        """
+        for f in ./{input}/*.fa;
+        do g=$(basename $f | sed "s/.fa//") ; echo "iqtree -nt 1 -m MFP -s $f -pre final_genetrees/$g" ; done > run_final_iqtree.sh
+
+        mkdir final_genetrees
+
+        echo "Initial:" $(ls -1 aligned_loci/*.aa_ali.fasta | wc -l)
+        echo "IC:" $(ls -1 mare_output/align_*.fas | wc -l)
+        echo "RCFV:" $(cat BaCoCa_Results/RCFV_include.txt | wc -l)
+        echo "SymTest:" $(ls -1 iqtree_passing/*.fa | wc -l)
+        """
+
+
+rule final_genetrees_NT:
+    ''' Grab IDs of iqtree_passing loci, then run iqtree on each locus. '''
+    input:
+        "iqtree_passing_NT"
+    output:
+        "run_final_iqtree_NT.sh"
+    conda:
+        "envs/iqtree.yaml"
+    shell:
+        """
+        for f in ./{input}/*.fa;
+        do g=$(basename $f | sed "s/.fa//") ; echo "iqtree -nt 1 -m MFP -s $f -pre final_genetrees_NT/$g" ; done > run_final_iqtree_NT.sh
+
+        mkdir final_genetrees_NT
+
+        echo "Initial:" $(ls -1 aligned_loci/*.nt_ali.fasta | wc -l)
+        echo "IC:" $(ls -1 mare_output_NT/align_*.fas | wc -l)
+        echo "RCFV:" $(cat BaCoCa_Results/RCFV_include.txt | wc -l)
+        echo "SymTest:" $(ls -1 iqtree_passing_NT/*.fa | wc -l)
+        """
+
+# ToDo General
+# 1. Upload new analyses
+#   1.1 Nucleotide analyses p123
+#   1.1 Nucleotide analyses p12
+# Most Important
+#    2.1 Make backup of analysis sheet
+#    2.2 Remove old data on Matrices and Analysis tabs
+#
+# 3. Update methods sections with latest details
+
+
+# -Update Numbers on merged_loci
+# Astral trees?
+
+# Todo in Snake script
+#   Symtest output
+#   Nucleotide vs AA output
+#
+#   Clean up output to save HDD space
+#       BaCoCa_Results ~3 GB (all in folders)
+#
+#   Occupancy function
+#   Total loci counter
+#   Loci per species output (equ. to data in FX07)
+
+
+
+
+# To remove for Zol+Pog:
+#    Trechus_obtusus
+#    Tasmanitachoides_wilsoni
+#    Patrobus_longicornis
+#    Anillini_Oregon
+#    Phrypeus_rickseckeri
+#    Tachyura_obesulus
+
+
+
+#

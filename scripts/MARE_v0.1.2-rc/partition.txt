@@ -1,0 +1,4 @@
+charset p1_BOG00000023 = 1-282;
+charset p2_BOG00000075 = 283-845;
+charset p3_BOG00000085 = 846-1118;
+charset p4_BOG00000095 = 1119-1657;

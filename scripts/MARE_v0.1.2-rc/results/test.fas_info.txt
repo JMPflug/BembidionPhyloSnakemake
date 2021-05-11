@@ -1,0 +1,26 @@
+MARE OUTPUT
+-----------
+
+Command:
+./MARE test.charset test.fas 
+
+original multiple sequence alignment
+------------------------------------
+information content of B     : 0.071
+matrix saturation            : 0.145
+nr of taxa                   : 106
+nr of partitions             : 350
+
+Parameters
+----------
+weighting of inform. content : 3
+weighting of taxa            : 1
+number of evaluated quartets : 20000
+
+reduced multiple sequence alignment
+-----------------------------------
+information content of B'            : 0.338
+nr of taxa                           : 18
+nr of partitions                     : 239
+ratio of reduced and complete matrix : 0.116
+matrix saturation                    : 0.614
